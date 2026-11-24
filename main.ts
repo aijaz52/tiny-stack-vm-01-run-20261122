@@ -1,11 +1,11 @@
 import { mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 
-// Each opcode records validity, pushes, pops, and immediate bytes.
-const ops = new Uint8Array(256);
-const define = (op: number, imm = 0, pop = 0, push = 0) => {
-  ops[op] = 128 | push << 5 | pop << 3 | imm;
-};
+// Sparse opcode metadata: immediate bytes, values popped, values pushed.
+// A hole is invalid, including the reserved byte 0x1f.
+const ops: number[][] = [];
+const define = (op: number, imm: number, pop: number, push: number) =>
+  ops[op] = [imm, pop, push];
 for (const [op, imm, pop, push] of [
   [0x00,0,0,0], [0x01,1,0,1], [0x02,4,0,1], [0x03,0,1,0],
   [0x04,0,1,2], [0x05,0,2,2], [0x06,0,2,3], [0x07,0,3,3],
@@ -17,7 +17,6 @@ for (let op = 0x10; op <= 0x22; op++)
   if (op !== 0x1f) define(op, 0, op === 0x17 || op === 0x1b ? 1 : 2, 1);
 
 export function run(program: Uint8Array, input: Uint8Array) {
-  const code = new DataView(program.buffer, program.byteOffset, program.byteLength);
   const s = new Int32Array(256), calls = new Int32Array(64);
   const memory = new Int32Array(256), out = new Uint8Array(65536);
   let pc = 0, steps = 0, pos = 0, length = 0, sp = 0, cp = 0;
@@ -27,16 +26,21 @@ export function run(program: Uint8Array, input: Uint8Array) {
     if (steps >= 1000000) return done(10);
     if (pc < 0 || pc >= program.length) return done(9);
     const op = program[pc], spec = ops[op];
-    if (!(spec & 128)) return done(5);
-    const imm = spec & 7, pop = spec >> 3 & 3, push = spec >> 5 & 3;
+    if (!spec) return done(5);
+    const [imm, pop, push] = spec;
     if (pc + imm >= program.length) return done(9);
     steps++;
     if (sp < pop) return done(2);
     if (sp - pop + push > s.length) return done(3);
     const q = pc + 1;
-    const arg = imm === 1 ? code.getInt8(q)
-      : imm === 4 ? code.getInt32(q, true)
-      : imm ? (op === 0x33 ? code.getUint16(q, true) : code.getInt16(q, true)) : 0;
+    let arg = 0;
+    if (imm === 1) arg = program[q] << 24 >> 24;
+    if (imm === 4)
+      arg = program[q] | program[q + 1] << 8 | program[q + 2] << 16 | program[q + 3] << 24;
+    if (imm === 2) {
+      arg = program[q] | program[q + 1] << 8;
+      if (op !== 0x33) arg = arg << 16 >> 16; // CALL alone is unsigned.
+    }
     pc += 1 + imm;
     const b = s[sp - 1], a = s[sp - 2], c = s[sp - 3];
     sp -= pop;
@@ -85,16 +89,15 @@ export function run(program: Uint8Array, input: Uint8Array) {
         if (op === 0x41) { memory[b] = a; continue; }
         r = memory[b];
         break;
-      case 0x50: {
-        const text = String(b);
-        if (length + text.length > out.length) return done(11);
-        for (let i = 0; i < text.length; i++) out[length++] = text.charCodeAt(i);
+      case 0x50: case 0x51: {
+        const text = op === 0x50 ? String(b) : '';
+        const size = op === 0x50 ? text.length : 1;
+        // Reserve the whole instruction's output before writing any bytes.
+        if (length + size > out.length) return done(11);
+        if (op === 0x51) out[length++] = b & 255;
+        else for (let i = 0; i < size; i++) out[length++] = text.charCodeAt(i);
         continue;
       }
-      case 0x51:
-        if (length === out.length) return done(11);
-        out[length++] = b & 255;
-        continue;
       case 0x52: r = pos < input.length ? input[pos++] : -1; break;
       case 0x53: return done(b & 255);
     }
