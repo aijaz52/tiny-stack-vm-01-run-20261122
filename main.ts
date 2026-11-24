@@ -1,11 +1,11 @@
 import { mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 
-// Sparse opcode metadata: immediate bytes, values popped, values pushed.
-// A hole is invalid, including the reserved byte 0x1f.
-const ops: number[][] = [];
+// One byte per opcode: valid bit, pushes (2 bits), pops (2), immediate (3).
+// Zero is invalid, including the reserved opcode 0x1f.
+const ops = new Uint8Array(256);
 const define = (op: number, imm: number, pop: number, push: number) =>
-  ops[op] = [imm, pop, push];
+  ops[op] = 128 | (push << 5) | (pop << 3) | imm;
 for (const [op, imm, pop, push] of [
   [0x00,0,0,0], [0x01,1,0,1], [0x02,4,0,1], [0x03,0,1,0],
   [0x04,0,1,2], [0x05,0,2,2], [0x06,0,2,3], [0x07,0,3,3],
@@ -17,7 +17,6 @@ for (let op = 0x10; op <= 0x22; op++)
   if (op !== 0x1f) define(op, 0, op === 0x17 || op === 0x1b ? 1 : 2, 1);
 
 export function run(program: Uint8Array, input: Uint8Array) {
-  const code = new DataView(program.buffer, program.byteOffset, program.byteLength);
   const s = new Int32Array(256), calls = new Int32Array(64);
   const memory = new Int32Array(256), out = new Uint8Array(65536);
   let pc = 0, steps = 0, pos = 0, length = 0, sp = 0, cp = 0;
@@ -28,15 +27,12 @@ export function run(program: Uint8Array, input: Uint8Array) {
     if (pc < 0 || pc >= program.length) return done(9);
     const op = program[pc], spec = ops[op];
     if (!spec) return done(5);
-    const [imm, pop, push] = spec;
+    const imm = spec & 7, pop = (spec >> 3) & 3, push = (spec >> 5) & 3;
     if (pc + imm >= program.length) return done(9);
     steps++;
     const next = pc + 1 + imm;
     if (sp < pop) return done(2);
     if (sp - pop + push > s.length) return done(3);
-    const q = pc + 1;
-    const arg = imm === 1 ? code.getInt8(q) : imm === 4 ? code.getInt32(q, true) :
-      imm === 2 ? (op === 0x33 ? code.getUint16(q, true) : code.getInt16(q, true)) : 0;
     pc = next;
     const b = s[sp - 1], a = s[sp - 2], c = s[sp - 3];
     sp -= pop;
@@ -44,7 +40,11 @@ export function run(program: Uint8Array, input: Uint8Array) {
     let r = b;
     switch (op) {
       case 0x00: return done(0);
-      case 0x01: case 0x02: r = arg; break;
+      case 0x01: r = program[pc - 1] << 24 >> 24; break;
+      case 0x02:
+        r = program[pc - 4] | program[pc - 3] << 8 |
+          program[pc - 2] << 16 | program[pc - 1] << 24;
+        break;
       case 0x03: continue;
       case 0x04: s[sp++] = b; break;
       case 0x05: s[sp++] = b; r = a; break;
@@ -70,12 +70,12 @@ export function run(program: Uint8Array, input: Uint8Array) {
       case 0x22: r = +((a >>> 0) < (b >>> 0)); break;
       case 0x30: case 0x31: case 0x32:
         if (op === 0x30 || (op === 0x31 ? b === 0 : b !== 0))
-          pc += arg;
+          pc += ((program[pc - 2] | program[pc - 1] << 8) << 16) >> 16;
         continue;
       case 0x33:
         if (cp === calls.length) return done(7);
         calls[cp++] = pc;
-        pc = arg;
+        pc = program[pc - 2] | program[pc - 1] << 8;
         continue;
       case 0x34:
         if (!cp) return done(8);
