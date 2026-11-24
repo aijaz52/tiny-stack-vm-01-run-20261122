@@ -47,9 +47,9 @@ export function run(program: Uint8Array, input: Uint8Array) {
       case 0x10: r = a + b; break;
       case 0x11: r = a - b; break;
       case 0x12: r = Math.imul(a, b); break;
-      case 0x13: r = a === -2147483648 && b === -1 ? a : Math.trunc(a / b); break;
-      case 0x14: r = b === -1 ? 0 : a % b; break;
-      case 0x15: r = Math.floor((a >>> 0) / (b >>> 0)); break;
+      case 0x13: r = a / b; break;
+      case 0x14: r = a % b; break;
+      case 0x15: r = (a >>> 0) / (b >>> 0); break;
       case 0x16: r = (a >>> 0) % (b >>> 0); break;
       case 0x17: r = -b; break;
       case 0x18: r = a & b; break;
@@ -79,16 +79,20 @@ export function run(program: Uint8Array, input: Uint8Array) {
         if (op === 0x41) { memory[b] = a; continue; }
         r = memory[b];
         break;
-      case 0x50: case 0x51: {
-        const text = op === 0x50 ? String(b) : String.fromCharCode(b & 255);
+      case 0x50: {
+        const text = String(b);
         if (length + text.length > out.length) return done(11);
         for (let i = 0; i < text.length; i++) out[length++] = text.charCodeAt(i);
         continue;
       }
+      case 0x51:
+        if (length === out.length) return done(11);
+        out[length++] = b & 255;
+        continue;
       case 0x52: r = pos < input.length ? input[pos++] : -1; break;
       case 0x53: return done(b & 255);
     }
-    // Normalize every arithmetic result to signed 32-bit, including negative zero.
+    // Truncate quotients, wrap overflow (including INT_MIN / -1), and erase -0.
     s[sp++] = r | 0;
   }
 }
