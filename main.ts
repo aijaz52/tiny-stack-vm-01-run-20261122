@@ -41,14 +41,14 @@ export function run(program: Uint8Array, input: Uint8Array) {
       case 0x00: return done(0);
       case 0x01: case 0x02: r = arg; break;
       case 0x03: continue;
-      case 0x04: sp++; break; // The original value is already in its slot.
+      case 0x04: s[sp++] = b; break;
       case 0x05: s[sp++] = b; r = a; break;
-      case 0x06: sp += 2; r = a; break;
+      case 0x06: s[sp++] = a; s[sp++] = b; r = a; break;
       case 0x07: s[sp++] = a; s[sp++] = b; r = c; break;
       case 0x10: r = (a + b) | 0; break;
       case 0x11: r = (a - b) | 0; break;
       case 0x12: r = Math.imul(a, b); break;
-      case 0x13: r = a === -2147483648 && b === -1 ? a : Math.trunc(a / b); break;
+      case 0x13: r = a === -2147483648 && b === -1 ? a : (a / b) | 0; break;
       case 0x14: r = b === -1 ? 0 : a % b; break;
       case 0x15: r = Math.floor((a >>> 0) / (b >>> 0)) | 0; break;
       case 0x16: r = (a >>> 0) % (b >>> 0) | 0; break;
