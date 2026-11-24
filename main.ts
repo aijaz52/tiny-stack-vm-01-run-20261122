@@ -49,7 +49,7 @@ export function run(program: Uint8Array, input: Uint8Array) {
       case 0x12: r = Math.imul(a, b); break;
       case 0x13: r = a / b; break;
       case 0x14: r = a % b; break;
-      case 0x15: r = (a >>> 0) / (b >>> 0); break;
+      case 0x15: r = Math.floor((a >>> 0) / (b >>> 0)); break;
       case 0x16: r = (a >>> 0) % (b >>> 0); break;
       case 0x17: r = -b; break;
       case 0x18: r = a & b; break;
