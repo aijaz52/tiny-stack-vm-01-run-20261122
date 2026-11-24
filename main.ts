@@ -23,13 +23,14 @@ export function run(program: Uint8Array, input: Uint8Array) {
   const done = (exit: number) => ({ stdout: out.slice(0, length), exit });
   for (;;) {
     // Trap precedence is steps, fetch, opcode, immediate, then stack effects.
-    if (steps >= 1000000) return done(10);
+    if (steps === 1000000) return done(10);
     if (pc < 0 || pc >= program.length) return done(9);
     const op = program[pc], spec = ops[op];
     if (!spec) return done(5);
     const [imm, pop, push] = spec;
     if (pc + imm >= program.length) return done(9);
     steps++;
+    const next = pc + 1 + imm;
     if (sp < pop) return done(2);
     if (sp - pop + push > s.length) return done(3);
     const q = pc + 1;
@@ -41,7 +42,7 @@ export function run(program: Uint8Array, input: Uint8Array) {
       arg = program[q] | program[q + 1] << 8;
       if (op !== 0x33) arg = arg << 16 >> 16; // CALL alone is unsigned.
     }
-    pc += 1 + imm;
+    pc = next;
     const b = s[sp - 1], a = s[sp - 2], c = s[sp - 3];
     sp -= pop;
     if (op >= 0x13 && op <= 0x16 && b === 0) return done(4);
