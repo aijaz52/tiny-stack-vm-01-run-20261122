@@ -48,10 +48,10 @@ export function run(program: Uint8Array, input: Uint8Array) {
       case 0x10: r = a + b; break;
       case 0x11: r = a - b; break;
       case 0x12: r = Math.imul(a, b); break;
-      case 0x13: r = a / b; break;
-      case 0x14: r = a % b; break;
-      case 0x15: r = (a >>> 0) / (b >>> 0); break;
-      case 0x16: r = (a >>> 0) % (b >>> 0); break;
+      case 0x13: r = a === -2147483648 && b === -1 ? a : Math.trunc(a / b); break;
+      case 0x14: r = b === -1 ? 0 : a % b; break;
+      case 0x15: r = Math.floor((a >>> 0) / (b >>> 0)) | 0; break;
+      case 0x16: r = (a >>> 0) % (b >>> 0) | 0; break;
       case 0x17: r = -b; break;
       case 0x18: r = a & b; break;
       case 0x19: r = a | b; break;
@@ -89,8 +89,7 @@ export function run(program: Uint8Array, input: Uint8Array) {
       case 0x52: r = pos < input.length ? input[pos++] : -1; break;
       case 0x53: return done(b & 255);
     }
-    // Int32Array stores truncate and wrap, including INT_MIN / -1 and -0.
-    s[sp++] = r;
+    s[sp++] = r | 0;
   }
 }
 
