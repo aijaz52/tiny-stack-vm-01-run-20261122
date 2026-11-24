@@ -19,7 +19,7 @@ export function run(program: Uint8Array, input: Uint8Array) {
   let pc = 0, steps = 0, pos = 0, length = 0, sp = 0, cp = 0;
   const done = (exit: number) => ({ stdout: out.slice(0, length), exit });
   for (;;) {
-    if (steps === 1000000) return done(10);
+    if (steps >= 1000000) return done(10);
     if (pc < 0 || pc >= program.length) return done(9);
     const op = program[pc], spec = ops[op];
     if (!(spec & 128)) return done(5);
@@ -47,9 +47,9 @@ export function run(program: Uint8Array, input: Uint8Array) {
       case 0x10: r = a + b; break;
       case 0x11: r = a - b; break;
       case 0x12: r = Math.imul(a, b); break;
-      case 0x13: r = a / b; break;
-      case 0x14: r = a % b; break;
-      case 0x15: r = (a >>> 0) / (b >>> 0); break;
+      case 0x13: r = a === -2147483648 && b === -1 ? a : Math.trunc(a / b); break;
+      case 0x14: r = b === -1 ? 0 : a % b; break;
+      case 0x15: r = Math.floor((a >>> 0) / (b >>> 0)); break;
       case 0x16: r = (a >>> 0) % (b >>> 0); break;
       case 0x17: r = -b; break;
       case 0x18: r = a & b; break;
