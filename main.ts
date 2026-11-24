@@ -1,9 +1,11 @@
 import { mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 
+const STEP_LIMIT = 1_000_000, OUTPUT_LIMIT = 65_536;
 // One byte per opcode: valid bit, pushes (2 bits), pops (2), immediate (3).
 // Zero is invalid, including the reserved opcode 0x1f.
 const ops = new Uint8Array(256);
+const encoder = new TextEncoder();
 const define = (op: number, imm: number, pop: number, push: number) =>
   ops[op] = 128 | (push << 5) | (pop << 3) | imm;
 for (const [op, imm, pop, push] of [
@@ -18,12 +20,12 @@ for (let op = 0x10; op <= 0x22; op++)
 
 export function run(program: Uint8Array, input: Uint8Array) {
   const s = new Int32Array(256), calls = new Int32Array(64);
-  const memory = new Int32Array(256), out = new Uint8Array(65536);
+  const memory = new Int32Array(256), out = new Uint8Array(OUTPUT_LIMIT);
   let pc = 0, steps = 0, pos = 0, length = 0, sp = 0, cp = 0;
   const done = (exit: number) => ({ stdout: out.slice(0, length), exit });
   for (;;) {
     // Trap precedence is steps, fetch, opcode, immediate, then stack effects.
-    if (steps === 1000000) return done(10);
+    if (steps >= STEP_LIMIT) return done(10);
     if (pc < 0 || pc >= program.length) return done(9);
     const op = program[pc], spec = ops[op];
     if (!spec) return done(5);
@@ -86,14 +88,15 @@ export function run(program: Uint8Array, input: Uint8Array) {
         r = memory[b];
         break;
       case 0x50: {
-        const text = String(b);
+        const bytes = encoder.encode(String(b));
         // A decimal PRINT either fits entirely or writes nothing.
-        if (length + text.length > out.length) return done(11);
-        for (let i = 0; i < text.length; i++) out[length++] = text.charCodeAt(i);
+        if (length + bytes.length > OUTPUT_LIMIT) return done(11);
+        out.set(bytes, length);
+        length += bytes.length;
         continue;
       }
       case 0x51:
-        if (length === out.length) return done(11);
+        if (length === OUTPUT_LIMIT) return done(11);
         out[length++] = b & 255;
         continue;
       case 0x52: r = pos < input.length ? input[pos++] : -1; break;
