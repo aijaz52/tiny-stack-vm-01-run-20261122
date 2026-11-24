@@ -14,7 +14,6 @@ for (let op = 0x10; op <= 0x22; op++)
   if (op !== 0x1f) ops[op] = 160 | (op === 0x17 || op === 0x1b ? 1 : 2) << 3;
 
 export function run(program: Uint8Array, input: Uint8Array) {
-  const code = new DataView(program.buffer, program.byteOffset, program.byteLength);
   const s = new Int32Array(256), calls = new Int32Array(64);
   const memory = new Int32Array(256), out = new Uint8Array(65536);
   let pc = 0, steps = 0, pos = 0, length = 0, sp = 0, cp = 0;
@@ -29,9 +28,10 @@ export function run(program: Uint8Array, input: Uint8Array) {
     steps++;
     if (sp < pop) return done(2);
     if (sp - pop + push > s.length) return done(3);
-    // Decode only after bounds checks; CALL takes unsigned, branches signed.
-    const arg = imm === 1 ? code.getInt8(pc + 1) : imm === 2
-      ? code.getUint16(pc + 1, true) : imm === 4 ? code.getInt32(pc + 1, true) : 0;
+    // Decode from the supplied view, with little-endian signed PUSH values.
+    const arg = imm === 1 ? program[pc + 1] << 24 >> 24 : imm === 2
+      ? program[pc + 1] | program[pc + 2] << 8 : imm === 4
+      ? program[pc + 1] | program[pc + 2] << 8 | program[pc + 3] << 16 | program[pc + 4] << 24 : 0;
     pc += 1 + imm;
     const b = s[sp - 1], a = s[sp - 2], c = s[sp - 3];
     sp -= pop;
@@ -80,16 +80,12 @@ export function run(program: Uint8Array, input: Uint8Array) {
         if (op === 0x41) { memory[b] = a; continue; }
         r = memory[b];
         break;
-      case 0x50: {
-        const text = String(b);
+      case 0x50: case 0x51: {
+        const text = op === 0x50 ? String(b) : String.fromCharCode(b & 255);
         if (length + text.length > out.length) return done(11);
         for (let i = 0; i < text.length; i++) out[length++] = text.charCodeAt(i);
         continue;
       }
-      case 0x51:
-        if (length === out.length) return done(11);
-        out[length++] = b & 255;
-        continue;
       case 0x52: r = pos < input.length ? input[pos++] : -1; break;
       case 0x53: return done(b & 255);
     }
