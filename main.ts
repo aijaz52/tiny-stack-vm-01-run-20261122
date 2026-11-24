@@ -1,17 +1,17 @@
 import { mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 
-// Each defined opcode records immediate bytes, pops, and pushes.
-const ops: number[][] = [];
+// Each opcode records validity, pushes, pops, and immediate bytes.
+const ops = new Uint8Array(256);
 for (const [op, imm, pop, push] of [
   [0x00,0,0,0], [0x01,1,0,1], [0x02,4,0,1], [0x03,0,1,0],
   [0x04,0,1,2], [0x05,0,2,2], [0x06,0,2,3], [0x07,0,3,3],
   [0x30,2,0,0], [0x31,2,1,0], [0x32,2,1,0], [0x33,2,0,0],
   [0x34,0,0,0], [0x40,0,1,1], [0x41,0,2,0],
   [0x50,0,1,0], [0x51,0,1,0], [0x52,0,0,1], [0x53,0,1,0]
-]) ops[op] = [imm, pop, push];
+]) ops[op] = 128 | push << 5 | pop << 3 | imm;
 for (let op = 0x10; op <= 0x22; op++)
-  if (op !== 0x1f) ops[op] = [0, op === 0x17 || op === 0x1b ? 1 : 2, 1];
+  if (op !== 0x1f) ops[op] = 160 | (op === 0x17 || op === 0x1b ? 1 : 2) << 3;
 
 export function run(program: Uint8Array, input: Uint8Array) {
   const code = new DataView(program.buffer, program.byteOffset, program.byteLength);
@@ -21,12 +21,12 @@ export function run(program: Uint8Array, input: Uint8Array) {
   const done = (exit: number) => ({ stdout: out.slice(0, length), exit });
   for (;;) {
     // Trap precedence is steps, fetch, opcode, immediate, then stack effects.
-    if (steps >= 1000000) return done(10);
+    if (steps === 1000000) return done(10);
     if (pc < 0 || pc >= program.length) return done(9);
     const op = program[pc], spec = ops[op];
-    if (!spec) return done(5);
-    const [imm, pop, push] = spec;
-    if (pc + 1 + imm > program.length) return done(9);
+    if (!(spec & 128)) return done(5);
+    const imm = spec & 7, pop = spec >> 3 & 3, push = spec >> 5 & 3;
+    if (pc + imm >= program.length) return done(9);
     steps++;
     if (sp < pop) return done(2);
     if (sp - pop + push > s.length) return done(3);
