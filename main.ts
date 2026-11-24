@@ -1,17 +1,17 @@
 import { mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 
-// Opcode metadata: immediate bytes, values popped, values pushed.
-const ops: number[][] = [];
+// Packed metadata: valid bit, pushes, pops, immediate bytes.
+const ops = new Uint8Array(256);
 for (const [op, imm, pop, push] of [
   [0x00,0,0,0], [0x01,1,0,1], [0x02,4,0,1], [0x03,0,1,0],
   [0x04,0,1,2], [0x05,0,2,2], [0x06,0,2,3], [0x07,0,3,3],
   [0x30,2,0,0], [0x31,2,1,0], [0x32,2,1,0], [0x33,2,0,0],
   [0x34,0,0,0], [0x40,0,1,1], [0x41,0,2,0],
   [0x50,0,1,0], [0x51,0,1,0], [0x52,0,0,1], [0x53,0,1,0]
-]) ops[op] = [imm, pop, push];
+]) ops[op] = 128 | push << 5 | pop << 3 | imm;
 for (let op = 0x10; op <= 0x22; op++)
-  if (op !== 0x1f) ops[op] = [0, op === 0x17 || op === 0x1b ? 1 : 2, 1];
+  if (op !== 0x1f) ops[op] = 160 | (op === 0x17 || op === 0x1b ? 1 : 2) << 3;
 
 export function run(program: Uint8Array, input: Uint8Array) {
   // Machine words and arithmetic results wrap to signed 32-bit values.
@@ -24,7 +24,7 @@ export function run(program: Uint8Array, input: Uint8Array) {
     if (pc < 0 || pc >= program.length) return done(9);
     const op = program[pc], spec = ops[op];
     if (!spec) return done(5);
-    const [imm, pop, push] = spec;
+    const imm = spec & 7, pop = spec >> 3 & 3, push = spec >> 5 & 3;
     if (pc + imm >= program.length) return done(9);
     steps++;
     if (sp < pop) return done(2);
@@ -62,14 +62,14 @@ export function run(program: Uint8Array, input: Uint8Array) {
         if (op === 0x40) s[sp++] = memory[b];
         else memory[b] = a;
         break;
-      case 0x50: {
-        const text = String(b);
-        if (length + text.length > out.length) return done(11);
-        length += out.write(text, length, 'ascii'); break;
+      case 0x50: case 0x51: {
+        const text = op === 0x50 ? String(b) : '';
+        const size = op === 0x50 ? text.length : 1;
+        if (length + size > out.length) return done(11);
+        if (op === 0x50) out.write(text, length, 'ascii');
+        else out[length] = b & 255;
+        length += size; break;
       }
-      case 0x51:
-        if (length === out.length) return done(11);
-        out[length++] = b & 255; break;
       case 0x52: s[sp++] = pos < input.length ? input[pos++] : -1; break;
       case 0x53: return done(b & 255);
       default: {
