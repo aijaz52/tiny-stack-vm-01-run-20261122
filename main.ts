@@ -3,6 +3,7 @@ import { join } from 'node:path';
 
 // Each opcode records validity, pushes, pops, and immediate bytes.
 const ops = new Uint8Array(256);
+const encoder = new TextEncoder();
 for (const [op, imm, pop, push] of [
   [0x00,0,0,0], [0x01,1,0,1], [0x02,4,0,1], [0x03,0,1,0],
   [0x04,0,1,2], [0x05,0,2,2], [0x06,0,2,3], [0x07,0,3,3],
@@ -21,7 +22,7 @@ export function run(program: Uint8Array, input: Uint8Array) {
   const done = (exit: number) => ({ stdout: out.slice(0, length), exit });
   for (;;) {
     // Trap precedence is steps, fetch, opcode, immediate, then stack effects.
-    if (steps === 1000000) return done(10);
+    if (steps >= 1000000) return done(10);
     if (pc < 0 || pc >= program.length) return done(9);
     const op = program[pc], spec = ops[op];
     if (!(spec & 128)) return done(5);
@@ -82,9 +83,10 @@ export function run(program: Uint8Array, input: Uint8Array) {
         r = memory[b];
         break;
       case 0x50: {
-        const text = String(b);
-        if (length + text.length > out.length) return done(11);
-        for (let i = 0; i < text.length; i++) out[length++] = text.charCodeAt(i);
+        const bytes = encoder.encode(String(b));
+        if (length + bytes.length > out.length) return done(11);
+        out.set(bytes, length);
+        length += bytes.length;
         continue;
       }
       case 0x51:
