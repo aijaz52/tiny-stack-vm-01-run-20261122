@@ -14,7 +14,7 @@ for (let op = 0x10; op <= 0x22; op++)
   if (op !== 0x1f) ops[op] = 160 | (op === 0x17 || op === 0x1b ? 1 : 2) << 3;
 
 export function run(program: Uint8Array, input: Uint8Array) {
-  const u16 = (at: number) => program[at] | program[at + 1] << 8;
+  const code = new DataView(program.buffer, program.byteOffset, program.byteLength);
   const s = new Int32Array(256), calls = new Int32Array(64);
   const memory = new Int32Array(256), out = new Uint8Array(65536);
   let pc = 0, steps = 0, pos = 0, length = 0, sp = 0, cp = 0;
@@ -29,6 +29,9 @@ export function run(program: Uint8Array, input: Uint8Array) {
     steps++;
     if (sp < pop) return done(2);
     if (sp - pop + push > s.length) return done(3);
+    // Decode only after bounds checks; CALL takes unsigned, branches signed.
+    const arg = imm === 1 ? code.getInt8(pc + 1) : imm === 2
+      ? code.getUint16(pc + 1, true) : imm === 4 ? code.getInt32(pc + 1, true) : 0;
     pc += 1 + imm;
     const b = s[sp - 1], a = s[sp - 2], c = s[sp - 3];
     sp -= pop;
@@ -36,12 +39,11 @@ export function run(program: Uint8Array, input: Uint8Array) {
     let r = b;
     switch (op) {
       case 0x00: return done(0);
-      case 0x01: r = program[pc - 1] << 24 >> 24; break;
-      case 0x02: r = u16(pc - 4) | u16(pc - 2) << 16; break;
+      case 0x01: case 0x02: r = arg; break;
       case 0x03: continue;
-      case 0x04: s[sp++] = b; break;
+      case 0x04: sp++; break; // The original value is already in its slot.
       case 0x05: s[sp++] = b; r = a; break;
-      case 0x06: s[sp++] = a; s[sp++] = b; r = a; break;
+      case 0x06: sp += 2; r = a; break;
       case 0x07: s[sp++] = a; s[sp++] = b; r = c; break;
       case 0x10: r = a + b; break;
       case 0x11: r = a - b; break;
@@ -63,12 +65,12 @@ export function run(program: Uint8Array, input: Uint8Array) {
       case 0x22: r = +((a >>> 0) < (b >>> 0)); break;
       case 0x30: case 0x31: case 0x32:
         if (op === 0x30 || (op === 0x31 ? b === 0 : b !== 0))
-          pc += u16(pc - 2) << 16 >> 16;
+          pc += arg << 16 >> 16;
         continue;
       case 0x33:
         if (cp === calls.length) return done(7);
         calls[cp++] = pc;
-        pc = u16(pc - 2);
+        pc = arg;
         continue;
       case 0x34:
         if (!cp) return done(8);
