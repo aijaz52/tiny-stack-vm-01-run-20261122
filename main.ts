@@ -14,9 +14,9 @@ for (let op = 0x10; op <= 0x22; op++)
   if (op !== 0x1f) ops[op] = 160 | (op === 0x17 || op === 0x1b ? 1 : 2) << 3;
 
 export function run(program: Uint8Array, input: Uint8Array) {
-  // Machine words and arithmetic results wrap to signed 32-bit values.
+  // Every result wraps here, including INT_MIN / -1 and negative zero.
   const s = new Int32Array(256), calls = new Int32Array(64);
-  const memory = new Int32Array(256), out = Buffer.alloc(65536);
+  const memory = new Int32Array(256), out = new Uint8Array(65536);
   let pc = 0, steps = 0, pos = 0, length = 0, sp = 0, cp = 0;
   const done = (exit: number) => ({ stdout: out.subarray(0, length), exit });
   for (;;) {
@@ -32,78 +32,78 @@ export function run(program: Uint8Array, input: Uint8Array) {
     pc += 1 + imm;
     const b = s[sp - 1], a = s[sp - 2], c = s[sp - 3];
     sp -= pop;
+    if (op >= 0x13 && op <= 0x16 && b === 0) return done(4);
+    let r = b;
     switch (op) {
       case 0x00: return done(0);
-      case 0x01: s[sp++] = program[pc - 1] << 24 >> 24; break;
+      case 0x01: r = program[pc - 1] << 24 >> 24; break;
       case 0x02:
-        s[sp++] = program[pc - 4] | program[pc - 3] << 8 |
+        r = program[pc - 4] | program[pc - 3] << 8 |
           program[pc - 2] << 16 | program[pc - 1] << 24; break;
-      case 0x03: break;
-      case 0x04: s[sp++] = b; s[sp++] = b; break;
-      case 0x05: s[sp++] = b; s[sp++] = a; break;
-      case 0x06: s[sp++] = a; s[sp++] = b; s[sp++] = a; break;
-      case 0x07: s[sp++] = a; s[sp++] = b; s[sp++] = c; break;
-      case 0x17: s[sp++] = -b; break;
-      case 0x1b: s[sp++] = ~b; break;
+      case 0x03: continue;
+      case 0x04: s[sp++] = b; break;
+      case 0x05: s[sp++] = b; r = a; break;
+      case 0x06: s[sp++] = a; s[sp++] = b; r = a; break;
+      case 0x07: s[sp++] = a; s[sp++] = b; r = c; break;
+      case 0x10: r = a + b; break;
+      case 0x11: r = a - b; break;
+      case 0x12: r = Math.imul(a, b); break;
+      case 0x13: r = a / b | 0; break;
+      case 0x14: r = a % b; break;
+      case 0x15: r = Math.floor((a >>> 0) / (b >>> 0)); break;
+      case 0x16: r = (a >>> 0) % (b >>> 0); break;
+      case 0x17: r = -b; break;
+      case 0x18: r = a & b; break;
+      case 0x19: r = a | b; break;
+      case 0x1a: r = a ^ b; break;
+      case 0x1b: r = ~b; break;
+      case 0x1c: r = a << (b & 31); break;
+      case 0x1d: r = a >> (b & 31); break;
+      case 0x1e: r = a >>> (b & 31); break;
+      case 0x20: r = +(a === b); break;
+      case 0x21: r = +(a < b); break;
+      case 0x22: r = +((a >>> 0) < (b >>> 0)); break;
       case 0x30: case 0x31: case 0x32:
         if (op === 0x30 || (op === 0x31 ? b === 0 : b !== 0))
           pc += (program[pc - 2] | program[pc - 1] << 8) << 16 >> 16;
-        break;
+        continue;
       case 0x33:
         if (cp === calls.length) return done(7);
         calls[cp++] = pc;
         pc = program[pc - 2] | program[pc - 1] << 8;
-        break;
+        continue;
       case 0x34:
         if (!cp) return done(8);
-        pc = calls[--cp]; break;
-      case 0x40: case 0x41:
+        pc = calls[--cp]; continue;
+      case 0x40:
         if (b < 0 || b > 255) return done(6);
-        if (op === 0x40) s[sp++] = memory[b];
-        else memory[b] = a;
+        r = memory[b];
         break;
+      case 0x41:
+        if (b < 0 || b > 255) return done(6);
+        memory[b] = a; continue;
       case 0x50: case 0x51: {
         const text = op === 0x50 ? String(b) : '';
-        const size = op === 0x50 ? text.length : 1;
+        const size = text.length || 1;
+        // Check the entire PRINT before writing any of its ASCII bytes.
         if (length + size > out.length) return done(11);
-        if (op === 0x50) out.write(text, length, 'ascii');
+        if (text) for (let i = 0; i < size; i++) out[length + i] = text.charCodeAt(i);
         else out[length] = b & 255;
-        length += size; break;
+        length += size; continue;
       }
-      case 0x52: s[sp++] = pos < input.length ? input[pos++] : -1; break;
+      case 0x52: r = pos < input.length ? input[pos++] : -1; break;
       case 0x53: return done(b & 255);
-      default: {
-        if (op >= 0x13 && op <= 0x16 && b === 0) return done(4);
-        let r;
-        switch (op) {
-          case 0x10: r = a + b; break;
-          case 0x11: r = a - b; break;
-          case 0x12: r = Math.imul(a, b); break;
-          case 0x13: r = a === -2147483648 && b === -1 ? a : Math.trunc(a / b); break;
-          case 0x14: r = b === -1 ? 0 : a % b; break;
-          case 0x15: r = Math.floor((a >>> 0) / (b >>> 0)); break;
-          case 0x16: r = (a >>> 0) % (b >>> 0); break;
-          case 0x18: r = a & b; break;
-          case 0x19: r = a | b; break;
-          case 0x1a: r = a ^ b; break;
-          case 0x1c: r = a << b; break;
-          case 0x1d: r = a >> b; break;
-          case 0x1e: r = a >>> b; break;
-          case 0x20: r = +(a === b); break;
-          case 0x21: r = +(a < b); break;
-          case 0x22: r = +((a >>> 0) < (b >>> 0)); break;
-        }
-        s[sp++] = r | 0;
-      }
     }
+    s[sp++] = r;
   }
 }
 
 const I = process.env.MAKEFUN_INPUT_DIR ?? '/input';
 const O = process.env.MAKEFUN_OUTPUT_DIR ?? '/output';
 for (const id of readdirSync(I).sort()) {
-  const result = run(readFileSync(join(I, id, 'program.bin')), readFileSync(join(I, id, 'input.bin')));
-  mkdirSync(join(O, id), { recursive: true });
-  writeFileSync(join(O, id, 'stdout.bin'), result.stdout);
-  writeFileSync(join(O, id, 'exit.txt'), result.exit + '\n');
+  const source = join(I, id), target = join(O, id);
+  const result = run(readFileSync(join(source, 'program.bin')), readFileSync(join(source, 'input.bin')));
+  mkdirSync(target, { recursive: true });
+  writeFileSync(join(target, 'stdout.bin'), result.stdout);
+  writeFileSync(join(target, 'exit.txt'), result.exit + '\n');
 }
