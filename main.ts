@@ -24,7 +24,7 @@ export function run(program: Uint8Array, input: Uint8Array) {
     const op = program[pc], spec = ops[op];
     if (!(spec & 128)) return done(5);
     const imm = spec & 7, pop = spec >> 3 & 3, push = spec >> 5 & 3;
-    if (pc + imm >= program.length) return done(9);
+    if (pc + 1 + imm > program.length) return done(9);
     steps++;
     if (sp < pop) return done(2);
     if (sp - pop + push > s.length) return done(3);
