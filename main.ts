@@ -62,11 +62,14 @@ export function run(program: Uint8Array, input: Uint8Array) {
         if (op === 0x40) s[sp++] = memory[b];
         else memory[b] = a;
         break;
-      case 0x50: case 0x51: {
-        const text = op === 0x50 ? String(b) : String.fromCharCode(b & 255);
+      case 0x50: {
+        const text = String(b);
         if (length + text.length > out.length) return done(11);
-        length += out.write(text, length, 'latin1'); break;
+        length += out.write(text, length, 'ascii'); break;
       }
+      case 0x51:
+        if (length === out.length) return done(11);
+        out[length++] = b & 255; break;
       case 0x52: s[sp++] = pos < input.length ? input[pos++] : -1; break;
       case 0x53: return done(b & 255);
       default: {
