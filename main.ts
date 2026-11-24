@@ -2,25 +2,23 @@ import { mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 // Opcode metadata: immediate bytes, values popped, values pushed.
-const ops = [];
+const ops: number[][] = [];
 for (const [op, imm, pop, push] of [
   [0x00,0,0,0], [0x01,1,0,1], [0x02,4,0,1], [0x03,0,1,0],
   [0x04,0,1,2], [0x05,0,2,2], [0x06,0,2,3], [0x07,0,3,3],
-  [0x10,0,2,1], [0x11,0,2,1], [0x12,0,2,1], [0x13,0,2,1],
-  [0x14,0,2,1], [0x15,0,2,1], [0x16,0,2,1], [0x17,0,1,1],
-  [0x18,0,2,1], [0x19,0,2,1], [0x1a,0,2,1], [0x1b,0,1,1],
-  [0x1c,0,2,1], [0x1d,0,2,1], [0x1e,0,2,1],
-  [0x20,0,2,1], [0x21,0,2,1], [0x22,0,2,1],
   [0x30,2,0,0], [0x31,2,1,0], [0x32,2,1,0], [0x33,2,0,0],
   [0x34,0,0,0], [0x40,0,1,1], [0x41,0,2,0],
   [0x50,0,1,0], [0x51,0,1,0], [0x52,0,0,1], [0x53,0,1,0]
 ]) ops[op] = [imm, pop, push];
+for (let op = 0x10; op <= 0x22; op++)
+  if (op !== 0x1f) ops[op] = [0, op === 0x17 || op === 0x1b ? 1 : 2, 1];
 
-export function run(program, input) {
+export function run(program: Uint8Array, input: Uint8Array) {
+  // Int32Array stores wrap every arithmetic result modulo 2^32.
   const s = new Int32Array(256), calls = new Int32Array(64);
   const memory = new Int32Array(256), out = Buffer.alloc(65536);
   let pc = 0, steps = 0, pos = 0, length = 0, sp = 0, cp = 0;
-  const done = exit => ({ stdout: out.subarray(0, length), exit });
+  const done = (exit: number) => ({ stdout: out.subarray(0, length), exit });
   for (;;) {
     if (steps === 1000000) return done(10);
     if (pc < 0 || pc >= program.length) return done(9);
@@ -64,14 +62,11 @@ export function run(program, input) {
         if (op === 0x40) s[sp++] = memory[b];
         else memory[b] = a;
         break;
-      case 0x50: {
-        const text = String(b);
+      case 0x50: case 0x51: {
+        const text = op === 0x50 ? String(b) : String.fromCharCode(b & 255);
         if (length + text.length > out.length) return done(11);
-        length += out.write(text, length, 'ascii'); break;
+        length += out.write(text, length, 'latin1'); break;
       }
-      case 0x51:
-        if (length === out.length) return done(11);
-        out[length++] = b & 255; break;
       case 0x52: s[sp++] = pos < input.length ? input[pos++] : -1; break;
       case 0x53: return done(b & 255);
       default: {
