@@ -25,7 +25,7 @@ export function run(program: Uint8Array, input: Uint8Array) {
   const done = (exit: number) => ({ stdout: out.subarray(0, length), exit });
   for (;;) {
     // Trap precedence is steps, fetch, opcode, immediate, then stack effects.
-    if (steps === STEP_LIMIT) return done(10);
+    if (steps >= STEP_LIMIT) return done(10);
     if (pc < 0 || pc >= program.length) return done(9);
     const op = program[pc], spec = ops[op];
     if (!spec) return done(5);
@@ -87,13 +87,16 @@ export function run(program: Uint8Array, input: Uint8Array) {
         if (op === 0x41) { memory[b] = a; continue; }
         r = memory[b];
         break;
-      case 0x50: case 0x51: {
-        const text = op === 0x50 ? String(b) : String.fromCharCode(b & 255);
-        // Check the whole write first; copy code units directly as raw bytes.
+      case 0x50: {
+        const text = String(b);
         if (text.length > OUTPUT_LIMIT - length) return done(11);
         for (let i = 0; i < text.length; i++) out[length++] = text.charCodeAt(i);
         continue;
       }
+      case 0x51:
+        if (length === OUTPUT_LIMIT) return done(11);
+        out[length++] = b & 255;
+        continue;
       case 0x52: r = pos < input.length ? input[pos++] : -1; break;
       case 0x53: return done(b & 255);
     }
