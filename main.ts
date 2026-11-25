@@ -26,7 +26,7 @@ export function run(program: Uint8Array, input: Uint8Array) {
   const done = (exit: number) => ({ stdout: out.slice(0, length), exit });
   for (;;) {
     // Trap precedence is steps, fetch, opcode, immediate, then stack effects.
-    if (steps === STEP_LIMIT) return done(10);
+    if (steps >= STEP_LIMIT) return done(10);
     if (pc < 0 || pc >= program.length) return done(9);
     const op = program[pc], spec = ops[op];
     if (!spec) return done(5);
@@ -97,7 +97,7 @@ export function run(program: Uint8Array, input: Uint8Array) {
         continue;
       }
       case 0x51:
-        if (length === OUTPUT_LIMIT) return done(11);
+        if (length + 1 > OUTPUT_LIMIT) return done(11);
         out[length++] = b & 255;
         continue;
       case 0x52: r = pos < input.length ? input[pos++] : -1; break;
