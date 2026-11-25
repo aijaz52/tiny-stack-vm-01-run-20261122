@@ -22,7 +22,7 @@ export function run(program: Uint8Array, input: Uint8Array) {
   const s = new Int32Array(STACK_LIMIT), calls = new Int32Array(CALL_LIMIT);
   const memory = new Int32Array(MEMORY_LIMIT), out = new Uint8Array(OUTPUT_LIMIT);
   let pc = 0, steps = 0, pos = 0, length = 0, sp = 0, cp = 0;
-  const done = (exit: number) => ({ stdout: out.slice(0, length), exit });
+  const done = (exit: number) => ({ stdout: out.subarray(0, length), exit });
   for (;;) {
     // Trap precedence is steps, fetch, opcode, immediate, then stack effects.
     if (steps >= STEP_LIMIT) return done(10);
@@ -35,9 +35,12 @@ export function run(program: Uint8Array, input: Uint8Array) {
     const next = pc + 1 + imm;
     if (sp < pop) return done(2);
     if (sp - pop + push > STACK_LIMIT) return done(3);
-    // Decode once; only relative branches sign-extend a two-byte immediate.
+    // Decode fixed-width little-endian immediates; CALL stays unsigned.
     let value = 0;
-    for (let i = 0; i < imm; i++) value |= program[pc + 1 + i] << (i * 8);
+    if (imm === 1) value = program[pc + 1];
+    else if (imm === 2) value = program[pc + 1] | program[pc + 2] << 8;
+    else if (imm === 4) value = program[pc + 1] | program[pc + 2] << 8 |
+      program[pc + 3] << 16 | program[pc + 4] << 24;
     pc = next;
     const b = s[sp - 1], a = s[sp - 2], c = s[sp - 3];
     sp -= pop;
