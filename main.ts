@@ -25,13 +25,12 @@ export function run(program: Uint8Array, input: Uint8Array) {
   const done = (exit: number) => ({ stdout: out.subarray(0, length), exit });
   for (;;) {
     // Trap precedence is steps, fetch, opcode, immediate, then stack effects.
-    if (steps >= STEP_LIMIT) return done(10);
+    if (steps === STEP_LIMIT) return done(10);
     if (pc < 0 || pc >= program.length) return done(9);
     const op = program[pc], spec = ops[op];
     if (!spec) return done(5);
     const imm = spec & 7, pop = (spec >> 3) & 3, push = (spec >> 5) & 3;
-    const next = pc + 1 + imm;
-    if (next > program.length) return done(9);
+    if (pc + imm >= program.length) return done(9);
     steps++;
     if (sp < pop) return done(2);
     if (sp - pop + push > STACK_LIMIT) return done(3);
@@ -41,10 +40,12 @@ export function run(program: Uint8Array, input: Uint8Array) {
     else if (imm === 2) value = program[pc + 1] | program[pc + 2] << 8;
     else if (imm === 4) value = program[pc + 1] | program[pc + 2] << 8 |
       program[pc + 3] << 16 | program[pc + 4] << 24;
+    const next = pc + 1 + imm;
     pc = next;
     const b = s[sp - 1], a = s[sp - 2], c = s[sp - 3];
-    sp -= pop;
     if (op >= 0x13 && op <= 0x16 && b === 0) return done(4);
+    if ((op === 0x40 || op === 0x41) && (b < 0 || b >= MEMORY_LIMIT)) return done(6);
+    sp -= pop;
     let r = b;
     switch (op) {
       case 0x00: return done(0);
@@ -86,7 +87,6 @@ export function run(program: Uint8Array, input: Uint8Array) {
         if (!cp) return done(8);
         pc = calls[--cp]; continue;
       case 0x40: case 0x41:
-        if (b < 0 || b >= MEMORY_LIMIT) return done(6);
         if (op === 0x41) { memory[b] = a; continue; }
         r = memory[b];
         break;
