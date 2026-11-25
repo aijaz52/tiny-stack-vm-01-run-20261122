@@ -1,6 +1,7 @@
 import { mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 
+const STACK_LIMIT = 256, CALL_LIMIT = 64, MEMORY_LIMIT = 256;
 const STEP_LIMIT = 1_000_000, OUTPUT_LIMIT = 65_536;
 // One byte per opcode: valid bit, pushes (2 bits), pops (2), immediate (3).
 // Zero is invalid, including the reserved opcode 0x1f.
@@ -19,13 +20,13 @@ for (let op = 0x10; op <= 0x22; op++)
   if (op !== 0x1f) define(op, 0, op === 0x17 || op === 0x1b ? 1 : 2, 1);
 
 export function run(program: Uint8Array, input: Uint8Array) {
-  const s = new Int32Array(256), calls = new Int32Array(64);
-  const memory = new Int32Array(256), out = new Uint8Array(OUTPUT_LIMIT);
+  const s = new Int32Array(STACK_LIMIT), calls = new Int32Array(CALL_LIMIT);
+  const memory = new Int32Array(MEMORY_LIMIT), out = new Uint8Array(OUTPUT_LIMIT);
   let pc = 0, steps = 0, pos = 0, length = 0, sp = 0, cp = 0;
   const done = (exit: number) => ({ stdout: out.slice(0, length), exit });
   for (;;) {
     // Trap precedence is steps, fetch, opcode, immediate, then stack effects.
-    if (steps >= STEP_LIMIT) return done(10);
+    if (steps === STEP_LIMIT) return done(10);
     if (pc < 0 || pc >= program.length) return done(9);
     const op = program[pc], spec = ops[op];
     if (!spec) return done(5);
@@ -34,7 +35,7 @@ export function run(program: Uint8Array, input: Uint8Array) {
     steps++;
     const next = pc + 1 + imm;
     if (sp < pop) return done(2);
-    if (sp - pop + push > s.length) return done(3);
+    if (sp - pop + push > STACK_LIMIT) return done(3);
     pc = next;
     const b = s[sp - 1], a = s[sp - 2], c = s[sp - 3];
     sp -= pop;
@@ -75,7 +76,7 @@ export function run(program: Uint8Array, input: Uint8Array) {
           pc += ((program[pc - 2] | program[pc - 1] << 8) << 16) >> 16;
         continue;
       case 0x33:
-        if (cp === calls.length) return done(7);
+        if (cp === CALL_LIMIT) return done(7);
         calls[cp++] = pc;
         pc = program[pc - 2] | program[pc - 1] << 8;
         continue;
@@ -83,7 +84,7 @@ export function run(program: Uint8Array, input: Uint8Array) {
         if (!cp) return done(8);
         pc = calls[--cp]; continue;
       case 0x40: case 0x41:
-        if (b < 0 || b >= memory.length) return done(6);
+        if (b < 0 || b >= MEMORY_LIMIT) return done(6);
         if (op === 0x41) { memory[b] = a; continue; }
         r = memory[b];
         break;
