@@ -19,10 +19,12 @@ for (let op = 0x10; op <= 0x22; op++)
   if (op !== 0x1f) define(op, 0, op === 0x17 || op === 0x1b ? 1 : 2, 1);
 
 export function run(program: Uint8Array, input: Uint8Array) {
+  // Respect byteOffset: callers may supply a Buffer view into a larger allocation.
+  const code = new DataView(program.buffer, program.byteOffset, program.byteLength);
   const s = new Int32Array(STACK_LIMIT), calls = new Int32Array(CALL_LIMIT);
   const memory = new Int32Array(MEMORY_LIMIT), out = new Uint8Array(OUTPUT_LIMIT);
   let pc = 0, steps = 0, pos = 0, length = 0, sp = 0, cp = 0;
-  const done = (exit: number) => ({ stdout: out.subarray(0, length), exit });
+  const done = (exit: number) => ({ stdout: out.subarray(0, length), exit, steps });
   for (;;) {
     // Trap precedence is steps, fetch, opcode, immediate, then stack effects.
     if (steps >= STEP_LIMIT) return done(10);
@@ -43,11 +45,8 @@ export function run(program: Uint8Array, input: Uint8Array) {
     let r = b;
     switch (op) {
       case 0x00: return done(0);
-      case 0x01: r = program[next - 1] << 24 >> 24; break;
-      case 0x02:
-        r = program[next - 4] | (program[next - 3] << 8) |
-          (program[next - 2] << 16) | (program[next - 1] << 24);
-        break;
+      case 0x01: r = code.getInt8(next - 1); break;
+      case 0x02: r = code.getInt32(next - 4, true); break;
       case 0x03: continue;
       case 0x04: s[sp++] = b; break;
       case 0x05: s[sp++] = b; r = a; break;
@@ -73,12 +72,12 @@ export function run(program: Uint8Array, input: Uint8Array) {
       case 0x22: r = +((a >>> 0) < (b >>> 0)); break;
       case 0x30: case 0x31: case 0x32:
         if (op === 0x30 || (op === 0x31 ? b === 0 : b !== 0))
-          pc = next + ((program[next - 2] | (program[next - 1] << 8)) << 16 >> 16);
+          pc = next + code.getInt16(next - 2, true);
         continue;
       case 0x33:
         if (cp === CALL_LIMIT) return done(7);
         calls[cp++] = next;
-        pc = program[next - 2] | (program[next - 1] << 8);
+        pc = code.getUint16(next - 2, true);
         continue;
       case 0x34:
         if (!cp) return done(8);
