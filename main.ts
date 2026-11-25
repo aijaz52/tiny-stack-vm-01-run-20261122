@@ -37,10 +37,10 @@ export function run(program: Uint8Array, input: Uint8Array) {
     if (sp - pop + push > STACK_LIMIT) return done(3);
     // Decode fixed-width little-endian immediates; CALL stays unsigned.
     let value = 0;
-    if (imm === 1) value = program[pc + 1];
-    else if (imm === 2) value = program[pc + 1] | program[pc + 2] << 8;
-    else if (imm === 4) value = program[pc + 1] | program[pc + 2] << 8 |
-      program[pc + 3] << 16 | program[pc + 4] << 24;
+    if (imm === 1) value = program[next - 1];
+    else if (imm === 2) value = program[next - 2] | program[next - 1] << 8;
+    else if (imm === 4) value = program[next - 4] | program[next - 3] << 8 |
+      program[next - 2] << 16 | program[next - 1] << 24;
     pc = next;
     const b = s[sp - 1], a = s[sp - 2], c = s[sp - 3];
     if (op >= 0x13 && op <= 0x16 && b === 0) return done(4);
@@ -76,7 +76,7 @@ export function run(program: Uint8Array, input: Uint8Array) {
       case 0x22: r = +((a >>> 0) < (b >>> 0)); break;
       case 0x30: case 0x31: case 0x32:
         if (op === 0x30 || (op === 0x31 ? b === 0 : b !== 0))
-          pc += value << 16 >> 16;
+          pc = next + (value << 16 >> 16);
         continue;
       case 0x33:
         if (cp === CALL_LIMIT) return done(7);
