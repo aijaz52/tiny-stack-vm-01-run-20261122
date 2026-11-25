@@ -56,7 +56,7 @@ export function run(program: Uint8Array, input: Uint8Array) {
       case 0x10: r = a + b; break;
       case 0x11: r = a - b; break;
       case 0x12: r = Math.imul(a, b); break;
-      case 0x13: r = a === -2147483648 && b === -1 ? a : Math.trunc(a / b) | 0; break;
+      case 0x13: r = a === -2147483648 && b === -1 ? a : (a / b) | 0; break;
       case 0x14: r = b === -1 ? 0 : a % b | 0; break;
       case 0x15: r = Math.floor((a >>> 0) / (b >>> 0)) | 0; break;
       case 0x16: r = (a >>> 0) % (b >>> 0) | 0; break;
@@ -77,7 +77,7 @@ export function run(program: Uint8Array, input: Uint8Array) {
         continue;
       case 0x33:
         if (cp === CALL_LIMIT) return done(7);
-        calls[cp++] = pc;
+        calls[cp++] = next;
         pc = program[next - 2] | (program[next - 1] << 8);
         continue;
       case 0x34:
