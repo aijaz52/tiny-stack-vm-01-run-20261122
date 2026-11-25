@@ -15,8 +15,8 @@ for (const [op, imm, pop, push] of [
   [0x34,0,0,0], [0x40,0,1,1], [0x41,0,2,0],
   [0x50,0,1,0], [0x51,0,1,0], [0x52,0,0,1], [0x53,0,1,0]
 ]) define(op, imm, pop, push);
-for (let op = 0x10; op <= 0x22; op++)
-  if (op !== 0x1f) define(op, 0, op === 0x17 || op === 0x1b ? 1 : 2, 1);
+for (const op of [0x10,0x11,0x12,0x13,0x14,0x15,0x16,0x17,0x18,0x19,0x1a,0x1b,0x1c,0x1d,0x1e,0x20,0x21,0x22])
+  define(op, 0, op === 0x17 || op === 0x1b ? 1 : 2, 1);
 
 export function run(program: Uint8Array, input: Uint8Array) {
   const s = new Int32Array(STACK_LIMIT), calls = new Int32Array(CALL_LIMIT);
@@ -30,7 +30,8 @@ export function run(program: Uint8Array, input: Uint8Array) {
     const op = program[pc], spec = ops[op];
     if (!spec) return done(5);
     const imm = spec & 7, pop = (spec >> 3) & 3, push = (spec >> 5) & 3;
-    if (pc + imm >= program.length) return done(9);
+    const next = pc + 1 + imm;
+    if (next > program.length) return done(9);
     steps++;
     if (sp < pop) return done(2);
     if (sp - pop + push > STACK_LIMIT) return done(3);
@@ -40,7 +41,6 @@ export function run(program: Uint8Array, input: Uint8Array) {
     else if (imm === 2) value = program[pc + 1] | program[pc + 2] << 8;
     else if (imm === 4) value = program[pc + 1] | program[pc + 2] << 8 |
       program[pc + 3] << 16 | program[pc + 4] << 24;
-    const next = pc + 1 + imm;
     pc = next;
     const b = s[sp - 1], a = s[sp - 2], c = s[sp - 3];
     if (op >= 0x13 && op <= 0x16 && b === 0) return done(4);
