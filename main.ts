@@ -30,9 +30,9 @@ export function run(program: Uint8Array, input: Uint8Array) {
     const op = program[pc], spec = ops[op];
     if (!spec) return done(5);
     const imm = spec & 7, pop = (spec >> 3) & 3, push = (spec >> 5) & 3;
-    if (pc + imm >= program.length) return done(9);
-    steps++;
     const next = pc + 1 + imm;
+    if (next > program.length) return done(9);
+    steps++;
     if (sp < pop) return done(2);
     if (sp - pop + push > STACK_LIMIT) return done(3);
     // Decode fixed-width little-endian immediates; CALL stays unsigned.
@@ -93,12 +93,12 @@ export function run(program: Uint8Array, input: Uint8Array) {
       case 0x50: {
         const text = String(b);
         // A decimal PRINT either fits entirely or writes nothing.
-        if (length + text.length > OUTPUT_LIMIT) return done(11);
+        if (text.length > OUTPUT_LIMIT - length) return done(11);
         for (let i = 0; i < text.length; i++) out[length++] = text.charCodeAt(i);
         continue;
       }
       case 0x51:
-        if (length + 1 > OUTPUT_LIMIT) return done(11);
+        if (length === OUTPUT_LIMIT) return done(11);
         out[length++] = b & 255;
         continue;
       case 0x52: r = pos < input.length ? input[pos++] : -1; break;
