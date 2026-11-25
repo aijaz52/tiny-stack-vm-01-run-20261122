@@ -6,7 +6,6 @@ const STEP_LIMIT = 1_000_000, OUTPUT_LIMIT = 65_536;
 // One byte per opcode: valid bit, pushes (2 bits), pops (2), immediate (3).
 // Zero is invalid, including the reserved opcode 0x1f.
 const ops = new Uint8Array(256);
-const encoder = new TextEncoder();
 const define = (op: number, imm: number, pop: number, push: number) =>
   ops[op] = 128 | (push << 5) | (pop << 3) | imm;
 for (const [op, imm, pop, push] of [
@@ -36,6 +35,9 @@ export function run(program: Uint8Array, input: Uint8Array) {
     const next = pc + 1 + imm;
     if (sp < pop) return done(2);
     if (sp - pop + push > STACK_LIMIT) return done(3);
+    // Decode once; only relative branches sign-extend a two-byte immediate.
+    let value = 0;
+    for (let i = 0; i < imm; i++) value |= program[pc + 1 + i] << (i * 8);
     pc = next;
     const b = s[sp - 1], a = s[sp - 2], c = s[sp - 3];
     sp -= pop;
@@ -43,11 +45,8 @@ export function run(program: Uint8Array, input: Uint8Array) {
     let r = b;
     switch (op) {
       case 0x00: return done(0);
-      case 0x01: r = program[pc - 1] << 24 >> 24; break;
-      case 0x02:
-        r = program[pc - 4] | program[pc - 3] << 8 |
-          program[pc - 2] << 16 | program[pc - 1] << 24;
-        break;
+      case 0x01: r = value << 24 >> 24; break;
+      case 0x02: r = value; break;
       case 0x03: continue;
       case 0x04: s[sp++] = b; break;
       case 0x05: s[sp++] = b; r = a; break;
@@ -73,12 +72,12 @@ export function run(program: Uint8Array, input: Uint8Array) {
       case 0x22: r = +((a >>> 0) < (b >>> 0)); break;
       case 0x30: case 0x31: case 0x32:
         if (op === 0x30 || (op === 0x31 ? b === 0 : b !== 0))
-          pc += ((program[pc - 2] | program[pc - 1] << 8) << 16) >> 16;
+          pc += value << 16 >> 16;
         continue;
       case 0x33:
         if (cp === CALL_LIMIT) return done(7);
         calls[cp++] = pc;
-        pc = program[pc - 2] | program[pc - 1] << 8;
+        pc = value;
         continue;
       case 0x34:
         if (!cp) return done(8);
@@ -89,11 +88,10 @@ export function run(program: Uint8Array, input: Uint8Array) {
         r = memory[b];
         break;
       case 0x50: {
-        const bytes = encoder.encode(String(b));
+        const text = String(b);
         // A decimal PRINT either fits entirely or writes nothing.
-        if (length + bytes.length > OUTPUT_LIMIT) return done(11);
-        out.set(bytes, length);
-        length += bytes.length;
+        if (length + text.length > OUTPUT_LIMIT) return done(11);
+        for (let i = 0; i < text.length; i++) out[length++] = text.charCodeAt(i);
         continue;
       }
       case 0x51:
