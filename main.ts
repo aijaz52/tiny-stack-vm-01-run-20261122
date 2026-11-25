@@ -56,8 +56,8 @@ export function run(program: Uint8Array, input: Uint8Array) {
       case 0x10: r = a + b; break;
       case 0x11: r = a - b; break;
       case 0x12: r = Math.imul(a, b); break;
-      case 0x13: r = Math.trunc(a / b) | 0; break;
-      case 0x14: r = a % b | 0; break;
+      case 0x13: r = a === -2147483648 && b === -1 ? a : Math.trunc(a / b) | 0; break;
+      case 0x14: r = b === -1 ? 0 : a % b | 0; break;
       case 0x15: r = Math.floor((a >>> 0) / (b >>> 0)) | 0; break;
       case 0x16: r = (a >>> 0) % (b >>> 0) | 0; break;
       case 0x17: r = -b; break;
@@ -101,7 +101,7 @@ export function run(program: Uint8Array, input: Uint8Array) {
       case 0x53: return done(b & 255);
     }
     // Every produced value is stored as a signed 32-bit integer.
-    s[sp++] = r | 0;
+    if (push) s[sp++] = r | 0;
   }
 }
 
