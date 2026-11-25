@@ -15,10 +15,11 @@ for (const [op, imm, pop, push] of [
   [0x34,0,0,0], [0x40,0,1,1], [0x41,0,2,0],
   [0x50,0,1,0], [0x51,0,1,0], [0x52,0,0,1], [0x53,0,1,0]
 ]) define(op, imm, pop, push);
-for (const op of [0x10,0x11,0x12,0x13,0x14,0x15,0x16,0x17,0x18,0x19,0x1a,0x1b,0x1c,0x1d,0x1e,0x20,0x21,0x22])
-  define(op, 0, op === 0x17 || op === 0x1b ? 1 : 2, 1);
+for (let op = 0x10; op <= 0x22; op++)
+  if (op !== 0x1f) define(op, 0, op === 0x17 || op === 0x1b ? 1 : 2, 1);
 
 export function run(program: Uint8Array, input: Uint8Array) {
+  const bytes = new DataView(program.buffer, program.byteOffset, program.byteLength);
   const s = new Int32Array(STACK_LIMIT), calls = new Int32Array(CALL_LIMIT);
   const memory = new Int32Array(MEMORY_LIMIT), out = new Uint8Array(OUTPUT_LIMIT);
   let pc = 0, steps = 0, pos = 0, length = 0, sp = 0, cp = 0;
@@ -36,11 +37,9 @@ export function run(program: Uint8Array, input: Uint8Array) {
     if (sp < pop) return done(2);
     if (sp - pop + push > STACK_LIMIT) return done(3);
     // Decode fixed-width little-endian immediates; CALL stays unsigned.
-    let value = 0;
-    if (imm === 1) value = program[next - 1];
-    else if (imm === 2) value = program[next - 2] | program[next - 1] << 8;
-    else if (imm === 4) value = program[next - 4] | program[next - 3] << 8 |
-      program[next - 2] << 16 | program[next - 1] << 24;
+    const value = imm === 1 ? bytes.getInt8(pc + 1) :
+      imm === 2 ? bytes.getUint16(pc + 1, true) :
+      imm === 4 ? bytes.getInt32(pc + 1, true) : 0;
     pc = next;
     const b = s[sp - 1], a = s[sp - 2], c = s[sp - 3];
     if (op >= 0x13 && op <= 0x16 && b === 0) return done(4);
@@ -49,21 +48,20 @@ export function run(program: Uint8Array, input: Uint8Array) {
     let r = b;
     switch (op) {
       case 0x00: return done(0);
-      case 0x01: r = value << 24 >> 24; break;
-      case 0x02: r = value; break;
+      case 0x01: case 0x02: r = value; break;
       case 0x03: continue;
       case 0x04: s[sp++] = b; break;
       case 0x05: s[sp++] = b; r = a; break;
       case 0x06: s[sp++] = a; s[sp++] = b; r = a; break;
       case 0x07: s[sp++] = a; s[sp++] = b; r = c; break;
-      case 0x10: r = (a + b) | 0; break;
-      case 0x11: r = (a - b) | 0; break;
+      case 0x10: r = a + b; break;
+      case 0x11: r = a - b; break;
       case 0x12: r = Math.imul(a, b); break;
-      case 0x13: r = a === -2147483648 && b === -1 ? a : (a / b) | 0; break;
-      case 0x14: r = b === -1 ? 0 : a % b; break;
-      case 0x15: r = Math.floor((a >>> 0) / (b >>> 0)) | 0; break;
-      case 0x16: r = (a >>> 0) % (b >>> 0) | 0; break;
-      case 0x17: r = -b | 0; break;
+      case 0x13: r = a / b; break;
+      case 0x14: r = a % b; break;
+      case 0x15: r = (a >>> 0) / (b >>> 0); break;
+      case 0x16: r = (a >>> 0) % (b >>> 0); break;
+      case 0x17: r = -b; break;
       case 0x18: r = a & b; break;
       case 0x19: r = a | b; break;
       case 0x1a: r = a ^ b; break;
@@ -104,6 +102,7 @@ export function run(program: Uint8Array, input: Uint8Array) {
       case 0x52: r = pos < input.length ? input[pos++] : -1; break;
       case 0x53: return done(b & 255);
     }
+    // Truncate and wrap once, including INT_MIN / -1 and negative-zero remainders.
     s[sp++] = r | 0;
   }
 }
