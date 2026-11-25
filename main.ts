@@ -4,7 +4,7 @@ import { join } from 'node:path';
 const STACK_LIMIT = 256, CALL_LIMIT = 64, MEMORY_LIMIT = 256;
 const STEP_LIMIT = 1_000_000, OUTPUT_LIMIT = 65_536;
 // One byte per opcode: valid bit, pushes (2 bits), pops (2), immediate (3).
-// Zero is invalid, including the reserved opcode 0x1f.
+// A zero table entry is invalid; 0x1f intentionally stays unassigned.
 const ops = new Uint8Array(256);
 const define = (op: number, imm: number, pop: number, push: number) =>
   ops[op] = 128 | (push << 5) | (pop << 3) | imm;
@@ -56,10 +56,10 @@ export function run(program: Uint8Array, input: Uint8Array) {
       case 0x10: r = a + b; break;
       case 0x11: r = a - b; break;
       case 0x12: r = Math.imul(a, b); break;
-      case 0x13: r = a / b; break;
-      case 0x14: r = a % b; break;
-      case 0x15: r = (a >>> 0) / (b >>> 0); break;
-      case 0x16: r = (a >>> 0) % (b >>> 0); break;
+      case 0x13: r = Math.trunc(a / b) | 0; break;
+      case 0x14: r = a % b | 0; break;
+      case 0x15: r = Math.floor((a >>> 0) / (b >>> 0)) | 0; break;
+      case 0x16: r = (a >>> 0) % (b >>> 0) | 0; break;
       case 0x17: r = -b; break;
       case 0x18: r = a & b; break;
       case 0x19: r = a | b; break;
@@ -100,7 +100,7 @@ export function run(program: Uint8Array, input: Uint8Array) {
       case 0x52: r = pos < input.length ? input[pos++] : -1; break;
       case 0x53: return done(b & 255);
     }
-    // Truncate and wrap once, including INT_MIN / -1 and negative-zero remainders.
+    // Every produced value is stored as a signed 32-bit integer.
     s[sp++] = r | 0;
   }
 }
