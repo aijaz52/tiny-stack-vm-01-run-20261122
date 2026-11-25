@@ -19,7 +19,6 @@ for (let op = 0x10; op <= 0x22; op++)
   if (op !== 0x1f) define(op, 0, op === 0x17 || op === 0x1b ? 1 : 2, 1);
 
 export function run(program: Uint8Array, input: Uint8Array) {
-  const bytes = new DataView(program.buffer, program.byteOffset, program.byteLength);
   const s = new Int32Array(STACK_LIMIT), calls = new Int32Array(CALL_LIMIT);
   const memory = new Int32Array(MEMORY_LIMIT), out = new Uint8Array(OUTPUT_LIMIT);
   let pc = 0, steps = 0, pos = 0, length = 0, sp = 0, cp = 0;
@@ -36,24 +35,24 @@ export function run(program: Uint8Array, input: Uint8Array) {
     steps++;
     if (sp < pop) return done(2);
     if (sp - pop + push > STACK_LIMIT) return done(3);
-    // Decode fixed-width little-endian immediates; CALL stays unsigned.
-    const value = imm === 1 ? bytes.getInt8(pc + 1) :
-      imm === 2 ? bytes.getUint16(pc + 1, true) :
-      imm === 4 ? bytes.getInt32(pc + 1, true) : 0;
     pc = next;
-    const b = s[sp - 1], a = s[sp - 2], c = s[sp - 3];
+    const b = s[sp - 1], a = s[sp - 2];
     if (op >= 0x13 && op <= 0x16 && b === 0) return done(4);
     if ((op === 0x40 || op === 0x41) && (b < 0 || b >= MEMORY_LIMIT)) return done(6);
     sp -= pop;
     let r = b;
     switch (op) {
       case 0x00: return done(0);
-      case 0x01: case 0x02: r = value; break;
+      case 0x01: r = program[next - 1] << 24 >> 24; break;
+      case 0x02:
+        r = program[next - 4] | (program[next - 3] << 8) |
+          (program[next - 2] << 16) | (program[next - 1] << 24);
+        break;
       case 0x03: continue;
       case 0x04: s[sp++] = b; break;
       case 0x05: s[sp++] = b; r = a; break;
       case 0x06: s[sp++] = a; s[sp++] = b; r = a; break;
-      case 0x07: s[sp++] = a; s[sp++] = b; r = c; break;
+      case 0x07: r = s[sp]; s[sp++] = a; s[sp++] = b; break;
       case 0x10: r = a + b; break;
       case 0x11: r = a - b; break;
       case 0x12: r = Math.imul(a, b); break;
@@ -74,12 +73,12 @@ export function run(program: Uint8Array, input: Uint8Array) {
       case 0x22: r = +((a >>> 0) < (b >>> 0)); break;
       case 0x30: case 0x31: case 0x32:
         if (op === 0x30 || (op === 0x31 ? b === 0 : b !== 0))
-          pc = next + (value << 16 >> 16);
+          pc = next + ((program[next - 2] | (program[next - 1] << 8)) << 16 >> 16);
         continue;
       case 0x33:
         if (cp === CALL_LIMIT) return done(7);
         calls[cp++] = pc;
-        pc = value;
+        pc = program[next - 2] | (program[next - 1] << 8);
         continue;
       case 0x34:
         if (!cp) return done(8);
@@ -88,17 +87,13 @@ export function run(program: Uint8Array, input: Uint8Array) {
         if (op === 0x41) { memory[b] = a; continue; }
         r = memory[b];
         break;
-      case 0x50: {
-        const text = String(b);
-        // A decimal PRINT either fits entirely or writes nothing.
+      case 0x50: case 0x51: {
+        const text = op === 0x50 ? String(b) : String.fromCharCode(b & 255);
+        // Check the whole write first; copy code units directly as raw bytes.
         if (text.length > OUTPUT_LIMIT - length) return done(11);
         for (let i = 0; i < text.length; i++) out[length++] = text.charCodeAt(i);
         continue;
       }
-      case 0x51:
-        if (length === OUTPUT_LIMIT) return done(11);
-        out[length++] = b & 255;
-        continue;
       case 0x52: r = pos < input.length ? input[pos++] : -1; break;
       case 0x53: return done(b & 255);
     }
