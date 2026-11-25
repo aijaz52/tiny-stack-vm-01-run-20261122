@@ -27,14 +27,14 @@ export function run(program: Uint8Array, input: Uint8Array) {
   const done = (exit: number) => ({ stdout: out.subarray(0, length), exit, steps });
   for (;;) {
     // Trap precedence is steps, fetch, opcode, immediate, then stack effects.
-    if (steps >= STEP_LIMIT) return done(10);
+    if (steps === STEP_LIMIT) return done(10);
     if (pc < 0 || pc >= program.length) return done(9);
     const op = program[pc], spec = ops[op];
     if (!spec) return done(5);
     const imm = spec & 7, pop = (spec >> 3) & 3, push = (spec >> 5) & 3;
-    const next = pc + 1 + imm;
-    if (next > program.length) return done(9);
+    if (pc + imm >= program.length) return done(9);
     steps++;
+    const next = pc + 1 + imm;
     if (sp < pop) return done(2);
     if (sp - pop + push > STACK_LIMIT) return done(3);
     pc = next;
